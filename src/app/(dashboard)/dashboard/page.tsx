@@ -1,4 +1,5 @@
 import { api } from '@/lib/trpc/server'
+import { DashboardCharts } from '@/components/dashboard/dashboard-charts'
 
 export default async function DashboardPage() {
   const stats = await api.application.getStats()
@@ -28,6 +29,8 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      <DashboardCharts />
     </div>
   )
 }

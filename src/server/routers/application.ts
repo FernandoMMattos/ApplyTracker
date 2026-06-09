@@ -63,4 +63,54 @@ export const applicationRouter = createTRPCRouter({
 
     return { total, byStatus, responseRate, offers }
   }),
+
+  getChartData: protectedProcedure.query(async ({ ctx }) => {
+    const applications = await ctx.db.application.findMany({
+      where: { userId: ctx.userId },
+      select: { status: true, createdAt: true },
+    })
+
+    const now = new Date()
+    const byWeek = Array.from({ length: 12 }, (_, i) => {
+      const weekEnd = new Date(now)
+      weekEnd.setDate(now.getDate() - (11 - i) * 7)
+      weekEnd.setHours(23, 59, 59, 999)
+      const weekStart = new Date(weekEnd)
+      weekStart.setDate(weekEnd.getDate() - 6)
+      weekStart.setHours(0, 0, 0, 0)
+
+      const label = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      const count = applications.filter(
+        (a) => a.createdAt >= weekStart && a.createdAt <= weekEnd,
+      ).length
+      return { week: label, count }
+    })
+
+    const STATUS_ORDER = [
+      'SAVED',
+      'APPLIED',
+      'PHONE_SCREEN',
+      'INTERVIEW',
+      'OFFER',
+      'REJECTED',
+      'WITHDRAWN',
+    ] as const
+    const STATUS_LABELS: Record<string, string> = {
+      SAVED: 'Saved',
+      APPLIED: 'Applied',
+      PHONE_SCREEN: 'Phone Screen',
+      INTERVIEW: 'Interview',
+      OFFER: 'Offer',
+      REJECTED: 'Rejected',
+      WITHDRAWN: 'Withdrawn',
+    }
+
+    const byStatus = STATUS_ORDER.map((status) => ({
+      status,
+      label: STATUS_LABELS[status],
+      count: applications.filter((a) => a.status === status).length,
+    }))
+
+    return { byWeek, byStatus }
+  }),
 })
