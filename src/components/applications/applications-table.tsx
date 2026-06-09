@@ -1,12 +1,19 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { PencilIcon, Trash2Icon, PlusIcon, SearchIcon } from 'lucide-react'
-import type { Application, AiInsight } from '@prisma/client'
+import { PencilIcon, Trash2Icon, PlusIcon, SearchIcon, DownloadIcon } from 'lucide-react'
+import type { Application, AiInsight, ApplicationStatus } from '@prisma/client'
 
 import { trpc } from '@/lib/trpc/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -22,6 +29,17 @@ import { DeleteDialog } from './delete-dialog'
 
 type ApplicationWithInsight = Application & { aiInsight: AiInsight | null }
 
+const STATUS_FILTER_OPTIONS: { value: ApplicationStatus | 'ALL'; label: string }[] = [
+  { value: 'ALL', label: 'All statuses' },
+  { value: 'SAVED', label: 'Saved' },
+  { value: 'APPLIED', label: 'Applied' },
+  { value: 'PHONE_SCREEN', label: 'Phone Screen' },
+  { value: 'INTERVIEW', label: 'Interview' },
+  { value: 'OFFER', label: 'Offer' },
+  { value: 'REJECTED', label: 'Rejected' },
+  { value: 'WITHDRAWN', label: 'Withdrawn' },
+]
+
 function formatDate(date: Date | null): string {
   if (!date) return '—'
   return new Date(date).toLocaleDateString('en-US', {
@@ -33,6 +51,7 @@ function formatDate(date: Date | null): string {
 
 export function ApplicationsTable() {
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | 'ALL'>('ALL')
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
   const [editApplication, setEditApplication] = useState<ApplicationWithInsight | null>(null)
@@ -42,17 +61,27 @@ export function ApplicationsTable() {
 
   const filtered = useMemo(() => {
     if (!applications) return []
-    if (!search.trim()) return applications
-    const q = search.toLowerCase()
-    return applications.filter(
-      (a) => a.company.toLowerCase().includes(q) || a.role.toLowerCase().includes(q),
-    )
-  }, [applications, search])
+    let result = applications
+    if (statusFilter !== 'ALL') {
+      result = result.filter((a) => a.status === statusFilter)
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(
+        (a) => a.company.toLowerCase().includes(q) || a.role.toLowerCase().includes(q),
+      )
+    }
+    return result
+  }, [applications, search, statusFilter])
+
+  function handleExport() {
+    window.open('/api/export', '_blank')
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="relative max-w-xs flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-48 flex-1">
           <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
           <Input
             placeholder="Search by company or role…"
@@ -61,10 +90,31 @@ export function ApplicationsTable() {
             className="pl-8"
           />
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <PlusIcon />
-          Add Application
-        </Button>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v as ApplicationStatus | 'ALL')}
+        >
+          <SelectTrigger className="w-36 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_FILTER_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <Button variant="outline" size="sm" onClick={handleExport} aria-label="Export CSV">
+            <DownloadIcon />
+            Export CSV
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <PlusIcon />
+            Add Application
+          </Button>
+        </div>
       </div>
 
       <div className="bg-card border-border rounded-lg border">
@@ -90,8 +140,8 @@ export function ApplicationsTable() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-muted-foreground py-12 text-center text-sm">
-                  {search
-                    ? 'No applications match your search.'
+                  {search || statusFilter !== 'ALL'
+                    ? 'No applications match your filters.'
                     : 'No applications yet. Add your first one!'}
                 </TableCell>
               </TableRow>
