@@ -1,0 +1,132 @@
+name: Deploy
+
+# Triggers only after CI passes on main — never deploys a failing build.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: applytrack
+  ECS_CLUSTER: applytrack
+  CONTAINER_NAME: app
+
+jobs:
+  deploy:
+    name: Build, Push & Deploy
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build with the commit SHA baked in as GIT_HASH so all Fargate tasks
+      # share the same Next.js build ID (required for Server Actions encryption).
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: GIT_HASH=${{ github.event.workflow_run.head_sha }}
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Fetch service metadata so we can reuse the same network config for
+      # the migration task and then update the service with the new image.
+      - name: Fetch ECS service metadata
+        id: ecs-meta
+        run: |
+          SERVICE_ARN=$(aws ecs list-services \
+            --cluster "$ECS_CLUSTER" \
+            --query 'serviceArns[0]' \
+            --output text)
+
+          SERVICE_JSON=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$SERVICE_ARN" \
+            --query 'services[0]')
+
+          SUBNETS=$(echo "$SERVICE_JSON" | jq -r '[.networkConfiguration.awsvpcConfiguration.subnets[]] | join(",")')
+          SGS=$(echo "$SERVICE_JSON"     | jq -r '[.networkConfiguration.awsvpcConfiguration.securityGroups[]] | join(",")')
+          SERVICE_NAME=$(echo "$SERVICE_JSON" | jq -r '.serviceName')
+          TASK_DEF_ARN=$(echo "$SERVICE_JSON" | jq -r '.taskDefinition')
+
+          echo "subnets=$SUBNETS"               >> "$GITHUB_OUTPUT"
+          echo "security_groups=$SGS"           >> "$GITHUB_OUTPUT"
+          echo "service_name=$SERVICE_NAME"     >> "$GITHUB_OUTPUT"
+          echo "task_definition_arn=$TASK_DEF_ARN" >> "$GITHUB_OUTPUT"
+
+          # Download current task definition JSON for the render action below.
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition' > task-definition.json
+
+      # Run migrations as a one-off Fargate task inside the VPC so it can
+      # reach the private RDS instance. The service image is reused — only the
+      # entry command is overridden.
+      - name: Run database migrations
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "${{ steps.ecs-meta.outputs.task_definition_arn }}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.ecs-meta.outputs.subnets }}],securityGroups=[${{ steps.ecs-meta.outputs.security_groups }}],assignPublicIp=DISABLED}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"npx\",\"prisma\",\"migrate\",\"deploy\"]}]}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed (exit code: $EXIT_CODE). Aborting deploy."
+            exit 1
+          fi
+          echo "Migrations applied successfully."
+
+      # Produce a new task definition JSON with the SHA-tagged image.
+      - name: Render new task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha }}
+
+      # Register the new task definition revision and roll it out.
+      # Waits for ECS to report the service stable before the job succeeds.
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ steps.ecs-meta.outputs.service_name }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

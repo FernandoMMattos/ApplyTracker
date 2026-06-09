@@ -19,6 +19,8 @@ COPY . .
 
 RUN npx prisma generate
 
+ARG GIT_HASH=local
+ENV GIT_HASH=$GIT_HASH
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
