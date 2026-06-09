@@ -1,7 +1,7 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 
-function escapeCSV(value: string | null | undefined): string {
+export function escapeCSV(value: string | null | undefined): string {
   if (value == null) return ''
   const str = String(value)
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -10,7 +10,7 @@ function escapeCSV(value: string | null | undefined): string {
   return str
 }
 
-function formatDate(date: Date | null): string {
+export function formatDate(date: Date | null): string {
   if (!date) return ''
   return new Date(date).toLocaleDateString('en-US', {
     month: '2-digit',
