@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# CDK
+infra/node_modules
+infra/cdk.out
+/playwright-report
+/test-results
