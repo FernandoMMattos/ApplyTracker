@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table'
 import { StatusBadge } from './status-badge'
 import { ApplicationDialog } from './application-dialog'
+import { ApplicationSheet } from './application-sheet'
 import { DeleteDialog } from './delete-dialog'
 
 type ApplicationWithInsight = Application & { aiInsight: AiInsight | null }
@@ -33,6 +34,7 @@ function formatDate(date: Date | null): string {
 export function ApplicationsTable() {
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
   const [editApplication, setEditApplication] = useState<ApplicationWithInsight | null>(null)
   const [deleteApplication, setDeleteApplication] = useState<Application | null>(null)
 
@@ -95,7 +97,11 @@ export function ApplicationsTable() {
               </TableRow>
             ) : (
               filtered.map((application) => (
-                <TableRow key={application.id}>
+                <TableRow
+                  key={application.id}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedAppId(application.id)}
+                >
                   <TableCell className="font-medium">{application.company}</TableCell>
                   <TableCell className="text-muted-foreground">{application.role}</TableCell>
                   <TableCell>
@@ -110,7 +116,7 @@ export function ApplicationsTable() {
                   <TableCell className="text-muted-foreground">
                     {formatDate(application.updatedAt)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -144,6 +150,13 @@ export function ApplicationsTable() {
           {applications.length !== 1 ? 's' : ''}
         </p>
       )}
+
+      <ApplicationSheet
+        applicationId={selectedAppId}
+        onOpenChange={(open) => {
+          if (!open) setSelectedAppId(null)
+        }}
+      />
 
       <ApplicationDialog open={createOpen} onOpenChange={setCreateOpen} />
 

@@ -1,9 +1,11 @@
 'use client'
 
+import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
+import { SparklesIcon, ChevronDownIcon } from 'lucide-react'
 import type { Application, AiInsight } from '@prisma/client'
 
 import { trpc } from '@/lib/trpc/client'
@@ -19,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 const formSchema = z.object({
   company: z.string().min(1, 'Company is required').max(100),
@@ -62,11 +65,14 @@ type Props = {
 
 export function ApplicationForm({ application, onSuccess }: Props) {
   const utils = trpc.useUtils()
+  const [parseOpen, setParseOpen] = useState(false)
+  const [jobDescription, setJobDescription] = useState('')
 
   const {
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -123,10 +129,60 @@ export function ApplicationForm({ application, onSuccess }: Props) {
     }
   }
 
+  const parseMutation = trpc.ai.parseJob.useMutation({
+    onSuccess: (data) => {
+      if (data.company) setValue('company', data.company)
+      if (data.role) setValue('role', data.role)
+      if (data.location) setValue('location', data.location)
+      if (data.salary) setValue('salary', data.salary)
+      if (data.notes) setValue('notes', data.notes)
+      toast.success('Form filled from job description')
+      setParseOpen(false)
+      setJobDescription('')
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
   const isPending = isSubmitting || createMutation.isPending || updateMutation.isPending
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {/* Auto-fill from job description */}
+      {!application && (
+        <div className="border-border rounded-lg border">
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 px-3 py-2.5 text-sm transition-colors"
+            onClick={() => setParseOpen((v) => !v)}
+          >
+            <SparklesIcon className="size-4" />
+            <span>Auto-fill from job description</span>
+            <ChevronDownIcon
+              className={cn('ml-auto size-4 transition-transform', parseOpen && 'rotate-180')}
+            />
+          </button>
+          {parseOpen && (
+            <div className="border-border space-y-2 border-t px-3 pt-2 pb-3">
+              <Textarea
+                placeholder="Paste the full job description here…"
+                className="min-h-28 resize-none text-sm"
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={jobDescription.length < 50 || parseMutation.isPending}
+                onClick={() => parseMutation.mutate({ jobText: jobDescription })}
+              >
+                <SparklesIcon />
+                {parseMutation.isPending ? 'Parsing…' : 'Parse & Fill Form'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="company">Company *</Label>
