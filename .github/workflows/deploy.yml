@@ -83,14 +83,41 @@ jobs:
             --task-definition "$TASK_DEF_ARN" \
             --query 'taskDefinition' > task-definition.json
 
+      # Produce a new task definition JSON with the SHA-tagged image.
+      - name: Render new task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha }}
+
+      # Remove the placeholder bootstrap `command` so the real image uses
+      # its own Dockerfile CMD. Safe no-op once the real image is deployed.
+      - name: Strip placeholder command from task definition
+        run: |
+          jq --arg name "$CONTAINER_NAME" \
+            '.containerDefinitions = [.containerDefinitions[] | if .name == $name then del(.command) else . end]' \
+            "${{ steps.task-def.outputs.task-definition }}" > clean-task-def.json
+
+      # Register the new task definition so the migration task uses the real
+      # image (which has Prisma), not the placeholder node:20-alpine image.
+      - name: Register new task definition
+        id: new-task-def
+        run: |
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$(jq 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' clean-task-def.json)" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "arn=$NEW_ARN" >> "$GITHUB_OUTPUT"
+
       # Run migrations as a one-off Fargate task inside the VPC so it can
-      # reach the private RDS instance. The service image is reused — only the
-      # entry command is overridden.
+      # reach the private RDS instance. Uses the new image which has Prisma.
       - name: Run database migrations
         run: |
           TASK_ARN=$(aws ecs run-task \
             --cluster "$ECS_CLUSTER" \
-            --task-definition "${{ steps.ecs-meta.outputs.task_definition_arn }}" \
+            --task-definition "${{ steps.new-task-def.outputs.arn }}" \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.ecs-meta.outputs.subnets }}],securityGroups=[${{ steps.ecs-meta.outputs.security_groups }}],assignPublicIp=DISABLED}" \
             --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"npx\",\"prisma\",\"migrate\",\"deploy\"]}]}" \
@@ -112,29 +139,12 @@ jobs:
           fi
           echo "Migrations applied successfully."
 
-      # Produce a new task definition JSON with the SHA-tagged image.
-      - name: Render new task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha }}
-
-      # Remove the placeholder bootstrap `command` so the real image uses
-      # its own Dockerfile CMD. Safe no-op once the real image is deployed.
-      - name: Strip placeholder command from task definition
-        run: |
-          jq --arg name "$CONTAINER_NAME" \
-            '.containerDefinitions = [.containerDefinitions[] | if .name == $name then del(.command) else . end]' \
-            "${{ steps.task-def.outputs.task-definition }}" > clean-task-def.json
-
-      # Register the new task definition revision and roll it out.
+      # Roll out the already-registered task definition revision.
       # Waits for ECS to report the service stable before the job succeeds.
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: clean-task-def.json
+          task-definition: ${{ steps.new-task-def.outputs.arn }}
           service: ${{ steps.ecs-meta.outputs.service_name }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
