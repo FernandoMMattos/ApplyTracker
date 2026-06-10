@@ -6,14 +6,14 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN HUSKY=0 npm ci --omit=dev && npm cache clean --force
 
 # ─── Builder stage ────────────────────────────────────────────────────────────
 FROM base AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN HUSKY=0 npm ci
 
 COPY . .
 
