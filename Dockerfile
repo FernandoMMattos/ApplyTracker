@@ -38,14 +38,17 @@ COPY --from=builder /app/public ./public
 
 RUN mkdir .next && chown nextjs:nodejs .next
 
+# Copy full production node_modules first so prisma migrate deploy has all its
+# transitive dependencies (effect, @prisma/config, etc.) that standalone omits.
+# Standalone output is layered on top: its node_modules win for any overlap
+# (including the generated @prisma/client) while deps-only packages remain.
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# prisma migrate deploy needs the schema, migrations, CLI, and migration engine.
-# The standalone output omits these, so copy them explicitly from the builder.
+# Schema + migrations needed by prisma migrate deploy.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 
 USER nextjs
 
