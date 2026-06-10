@@ -120,7 +120,7 @@ jobs:
             --task-definition "${{ steps.new-task-def.outputs.arn }}" \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.ecs-meta.outputs.subnets }}],securityGroups=[${{ steps.ecs-meta.outputs.security_groups }}],assignPublicIp=DISABLED}" \
-            --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"npx\",\"prisma\",\"migrate\",\"deploy\"]}]}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"node_modules/.bin/prisma\",\"migrate\",\"deploy\"]}]}" \
             --query 'tasks[0].taskArn' \
             --output text)
 
