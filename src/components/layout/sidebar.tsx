@@ -3,10 +3,10 @@ import { LayoutDashboard, Briefcase, BarChart2, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/applications', label: 'Applications', icon: Briefcase },
-  { href: '/analytics', label: 'Analytics', icon: BarChart2 },
-  { href: '/settings', label: 'Settings', icon: Settings },
+  { href: '/dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/applications' as const, label: 'Applications', icon: Briefcase },
+  { href: '/analytics' as const, label: 'Analytics', icon: BarChart2 },
+  { href: '/settings' as const, label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar() {
