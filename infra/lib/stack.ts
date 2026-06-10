@@ -20,6 +20,7 @@ export class ApplyTrackStack extends cdk.Stack {
     const vpc = new ec2.Vpc(this, 'Vpc', {
       maxAzs: 2,
       natGateways: 1,
+      restrictDefaultSecurityGroup: false,
       subnetConfiguration: [
         { name: 'public', subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
         {
@@ -34,7 +35,7 @@ export class ApplyTrackStack extends cdk.Stack {
     const repository = new ecr.Repository(this, 'Repository', {
       repositoryName: 'applytrack',
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteImages: true,
+      emptyOnDelete: true,
       lifecycleRules: [{ maxImageCount: 10, description: 'Keep last 10 images' }],
     })
 
@@ -89,7 +90,7 @@ export class ApplyTrackStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       storageEncrypted: true,
       multiAz: false,
-      backupRetention: cdk.Duration.days(7),
+      backupRetention: cdk.Duration.days(0),
       enablePerformanceInsights: false,
     })
 
@@ -110,7 +111,7 @@ export class ApplyTrackStack extends cdk.Stack {
     // ─── Task IAM Role ────────────────────────────────────────────────────────
     const taskRole = new iam.Role(this, 'TaskRole', {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      description: 'ECS task role — grants read access to app secrets',
+      description: 'ECS task role - grants read access to app secrets',
     })
     appSecrets.grantRead(taskRole)
 
@@ -122,7 +123,14 @@ export class ApplyTrackStack extends cdk.Stack {
     })
 
     taskDefinition.addContainer('app', {
-      image: ecs.ContainerImage.fromEcrRepository(repository, 'latest'),
+      // Placeholder image used for initial CDK bootstrap only.
+      // The CD pipeline replaces this with the real image on first push to main.
+      image: ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:20-alpine'),
+      command: [
+        'node',
+        '-e',
+        "require('http').createServer((_,r)=>{r.writeHead(200);r.end('ok')}).listen(3000)",
+      ],
       logging: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: 'app' }),
       environment: {
         NODE_ENV: 'production',

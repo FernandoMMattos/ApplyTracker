@@ -121,12 +121,20 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha }}
 
+      # Remove the placeholder bootstrap `command` so the real image uses
+      # its own Dockerfile CMD. Safe no-op once the real image is deployed.
+      - name: Strip placeholder command from task definition
+        run: |
+          jq --arg name "$CONTAINER_NAME" \
+            '.containerDefinitions = [.containerDefinitions[] | if .name == $name then del(.command) else . end]' \
+            "${{ steps.task-def.outputs.task-definition }}" > clean-task-def.json
+
       # Register the new task definition revision and roll it out.
       # Waits for ECS to report the service stable before the job succeeds.
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          task-definition: clean-task-def.json
           service: ${{ steps.ecs-meta.outputs.service_name }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
