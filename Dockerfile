@@ -44,7 +44,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # prisma migrate deploy needs the schema, migrations, CLI, and migration engine.
 # The standalone output omits these, so copy them explicitly from the builder.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 
