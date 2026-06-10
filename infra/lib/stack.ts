@@ -122,6 +122,11 @@ export class ApplyTrackStack extends cdk.Stack {
       taskRole,
     })
 
+    // Grant the execution role permission to pull from the private ECR repo.
+    // CDK omits this automatically when the bootstrap image is a public registry
+    // image; without it every Fargate task fails with ecr:GetAuthorizationToken.
+    repository.grantPull(taskDefinition.executionRole!)
+
     taskDefinition.addContainer('app', {
       // Placeholder image used for initial CDK bootstrap only.
       // The CD pipeline replaces this with the real image on first push to main.
